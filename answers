@@ -1,0 +1,102 @@
+------ Which tracks appeared in the most playlists? How many playlist did they appear in?
+select tracks.TrackId , tracks.Name, count(playlist_track.TrackId) as 'Number of playlists a track appears in'
+from playlist_track join tracks on playlist_track.TrackId = tracks.TrackId 
+group by playlist_track.TrackId
+order by count(playlist_track.TrackId) desc;
+
+
+
+
+----- Which track generated the most revenue?
+select tracks.TrackId , tracks.Name, ifnull(sum(invoice_items.UnitPrice),0) as 'Total sales of a track'
+from tracks left join invoice_items on tracks.TrackId = invoice_items.TrackId 
+group by tracks.TrackId
+order by sum(invoice_items.UnitPrice) desc;
+
+
+
+
+----- Which album generated the most revenue?
+select albums.AlbumId, albums.Title, ifnull(sum(invoice_items.UnitPrice),0) as 'Total sales of an album'
+from tracks left join albums on tracks.AlbumId = albums.AlbumId left join invoice_items on tracks.TrackId = invoice_items.TrackId
+group by albums.AlbumId
+order by sum(invoice_items.UnitPrice) desc;
+
+
+
+
+----- Which genre generated the most revenue?
+with tracks_sum as (select invoice_items.TrackId as 'TracksID', sum(invoice_items.UnitPrice) as 'SumTracks' from invoice_items group by invoice_items.TrackId)
+select genres.GenreId, genres.Name, round(sum(tracks_sum.SumTracks), 2) as 'GenreSum'
+from tracks left join genres on tracks.GenreId = genres.GenreId left join tracks_sum on tracks.TrackId = tracks_sum.TracksID
+group by genres.GenreId
+order by sum(tracks_sum.SumTracks) desc;
+
+
+
+
+------ Which countries have the highest sales revenue? What percent of total revenue does each country make up?
+select invoices.BillingCountry, round(sum(invoice_items.UnitPrice), 2) as 'Total Country Sales', round((sum(invoice_items.UnitPrice) / (select sum(invoice_items.UnitPrice) from invoice_items) * 100), 2) as '% from Grand Total'
+from invoices left join invoice_items on invoices.InvoiceId = invoice_items.InvoiceId
+group by invoices.BillingCountry
+order by sum(invoice_items.UnitPrice) desc;
+
+
+
+
+------ How many customers did each employee support, what is the average revenue for each sale, and what is their total sale?
+with sum_sale as (select invoices.CustomerId as 'CustID', sum(invoices.Total) as 'SumTotal' from invoices group by invoices.CustomerId)
+select employees.EmployeeId, employees.FirstName, employees.LastName, count(customers.CustomerId) as 'Number of customers per employee', round(sum(sum_sale.SumTotal) / count(customers.CustomerId), 2) as 'Average sales per customer', sum(sum_sale.SumTotal) as 'Total sales per employee'
+from customers left join employees on customers.SupportRepId = employees.EmployeeId left join sum_sale on customers.CustomerId = sum_sale.CustID
+group by employees.EmployeeId
+order by count(customers.CustomerId) desc;
+
+
+
+
+------- Do longer or shorter length albums tend to generate more revenue?
+with songs_sales as (select invoice_items.TrackId as 'TrackID', sum(invoice_items.UnitPrice) as 'SongsSales' from invoice_items group by invoice_items.TrackId)
+select albums.AlbumId, albums.Title, sum(tracks.Milliseconds) / 1000 / 60 as 'Album Length in minutes', sum(songs_sales.SongsSales) as 'Album Sales in USD'
+from tracks left join albums on tracks.AlbumId = albums.AlbumId left join songs_sales on tracks.TrackId = songs_sales.TrackID
+group by albums.AlbumId
+order by sum(songs_sales.SongsSales) desc;
+
+
+
+
+------ Is the number of times a track appear in any playlist a good indicator of sales?
+with track_count as (select playlist_track.TrackId as 'TrackID', count(playlist_track.TrackId) as 'TrackCount'
+from playlist_track
+group by playlist_track.TrackId)
+select tracks.TrackId , tracks.Name, track_count.TrackCount as 'Number of times a track appears in playlists', sum(invoice_items.UnitPrice) as 'Total sales of a track'
+from tracks left join track_count on tracks.TrackId = track_count.TrackID left join invoice_items on tracks.TrackId = invoice_items.TrackId 
+group by tracks.TrackId
+order by sum(invoice_items.UnitPrice) desc;
+
+OR
+
+with track_count as (select playlist_track.TrackId as 'TrackID', count(playlist_track.TrackId) as 'TrackCount'
+from playlist_track
+group by playlist_track.TrackId),
+track_sales as (select invoice_items.TrackId as 'TrackID', sum(invoice_items.UnitPrice) as 'TrackSales' 
+from invoice_items 
+group by invoice_items.TrackId)
+select tracks.TrackId , tracks.Name, track_count.TrackCount as 'Number of times a track appears in playlists', track_sales.TrackSales as 'Total sales of a track'
+from tracks left join track_count on tracks.TrackId = track_count.TrackID left join track_sales on tracks.TrackId = track_sales.TrackID
+group by tracks.TrackId
+order by track_sales.TrackSales desc;
+
+
+
+
+------ How much revenue is generated each year, and what is its percent change from the previous year?
+with prev_year as (SELECT cast(strftime('%Y', invoices.InvoiceDate) as int) as 'PrevYear', sum(invoices.Total) as 'PrevTotalRevenue' 
+from invoices
+group by strftime('%Y', invoices.InvoiceDate)),
+this_year as(SELECT cast(strftime('%Y', invoices.InvoiceDate) as int) as 'Year', sum(invoices.Total) as 'TotalRevenue' 
+from invoices
+group by strftime('%Y', invoices.InvoiceDate))
+
+SELECT this_year.Year as Year, this_year.TotalRevenue as 'Total Revenue', ifnull(round((this_year.TotalRevenue - prev_year.PrevTotalRevenue) / prev_year.PrevTotalRevenue * 100, 2), 'N/A') as 'Persent Change, in %'
+from this_year left join prev_year on this_year.Year = prev_year.PrevYear + 1
+group by this_year.Year;
